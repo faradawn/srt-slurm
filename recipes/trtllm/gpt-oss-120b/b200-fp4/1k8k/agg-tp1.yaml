@@ -1,0 +1,88 @@
+# GPT-OSS-120B MXFP4 aggregated TP1 on a single B200 GPU
+#
+# Reproduces SA-INFMAX CI run 22202637896 (2026-04-27):
+#   ISL/OSL 1024/8192 random (range-ratio 0.8), concurrency 256,
+#   2560 prompts + 512 warmups, ignore-eos, MXFP4 native quantization.
+# Target: ~14.3k output TPS, ~63.6 TPS/user, TTFT ~63ms, TPOT ~17.5ms.
+#
+# Source build cmd:
+#   mpirun -n 1 --oversubscribe --allow-run-as-root trtllm-serve openai/gpt-oss-120b \
+#     --port=8889 --trust_remote_code --backend=pytorch \
+#     --max_batch_size 512 --max_seq_len=9416 --max_num_tokens=20000 \
+#     --tp_size=1 --ep_size=1 --extra_llm_api_options=gptoss-fp4.yml
+#
+# srtctl maps this onto: trtllm-llmapi-launch python3 -m dynamo.trtllm
+#   --extra-engine-args <dumped-trtllm_config.aggregated.yaml>
+# (i.e. trtllm_config.aggregated below replaces gptoss-fp4.yml + the inline flags.)
+
+name: "gpt-oss-120b-trtllm-agg-b200-tp1-1k8k"
+
+model:
+  path: "openai/gpt-oss-120b"
+  container: "dynamo-trtllm"   # alias resolved in srtslurm.yaml; substitute the cluster's TRT-LLM image with GPT-OSS support
+  precision: "fp4"
+
+resources:
+  gpu_type: "b200"
+  gpus_per_node: 1     # request 1 of the 8 GPUs on the node (matches l_num_accelerators=1)
+  agg_nodes: 1
+  agg_workers: 1
+  gpus_per_agg: 1
+
+frontend:
+  type: dynamo
+  enable_multiple_frontends: false
+
+backend:
+  type: trtllm
+
+  aggregated_environment:
+    HF_HOME: "/lustre/fsw/coreai_prod_infbench/common/cache"
+    HF_HUB_OFFLINE: "1"
+    TRANSFORMERS_OFFLINE: "1"
+    PYTHONUNBUFFERED: "1"
+    DYN_HEALTH_CHECK_ENABLED: "false"
+    TRTLLM_ENABLE_PDL: "1"
+    TRTLLM_SERVER_DISABLE_GC: "1"
+    TRTLLM_WORKER_DISABLE_GC: "1"
+    TLLM_LOG_LEVEL: "INFO"
+
+  trtllm_config:
+    aggregated:
+      backend: "pytorch"
+      tensor_parallel_size: 1
+      moe_expert_parallel_size: 1
+      max_batch_size: 512
+      max_num_tokens: 20000
+      max_seq_len: 9416
+      trust_remote_code: true
+      # Anything that lived in `gptoss-fp4.yml` from the original CI run goes here.
+      # Without that file we are using TRT-LLM defaults; results may drift from the
+      # reference 14.3k TPS / 63ms TTFT until the missing tuning options are merged in.
+      # Common knobs to consider (uncomment + tune as needed):
+      # cuda_graph_config:
+      #   enable_padding: true
+      #   max_batch_size: 512
+      # kv_cache_config:
+      #   free_gpu_memory_fraction: 0.9
+      # moe_config:
+      #   backend: "TRTLLM"
+
+benchmark:
+  type: "sa-bench"
+  isl: 1024
+  osl: 8192
+  concurrencies: "256"
+  req_rate: "inf"
+  random_range_ratio: 0.8
+  num_prompts_mult: 10   # 256 * 10 = 2560 prompts (matches sample)
+  num_warmup_mult: 2     # 256 * 2  = 512 warmups (matches sample)
+
+identity:
+  model:
+    repo: "openai/gpt-oss-120b"
+    revision: "<TODO commit-sha from cache>"
+  container:
+    image: "<TODO full image URI with @sha256:...>"
+  frameworks:
+    trtllm: "<TODO version+sha used in CI run 22202637896>"
