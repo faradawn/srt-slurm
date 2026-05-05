@@ -208,7 +208,10 @@ def start_srun_process(
     if oversubscribe:
         srun_cmd.append("--oversubscribe")
     if cpu_bind:
-        srun_cmd.extend(["--cpu-bind", cpu_bind])
+        # Use --cpu-bind=value (single token) form. SLURM 25.x is strict and
+        # mis-parses the space-separated form, swallowing the next --flag as
+        # the value (see "unrecognized --cpu-bind argument" failures).
+        srun_cmd.append(f"--cpu-bind={cpu_bind}")
 
     srun_cmd.extend(["--nodes", str(nodes)])
     srun_cmd.extend(["--ntasks", str(ntasks)])

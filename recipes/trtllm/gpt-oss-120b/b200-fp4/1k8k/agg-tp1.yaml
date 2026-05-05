@@ -18,9 +18,18 @@
 name: "gpt-oss-120b-trtllm-agg-b200-tp1-1k8k"
 
 model:
-  path: "openai/gpt-oss-120b"
-  container: "dynamo-trtllm"   # alias resolved in srtslurm.yaml; substitute the cluster's TRT-LLM image with GPT-OSS support
+  path: "/lustre/fsw/coreai_prod_infbench/common/cache/hub/models--openai--gpt-oss-120b/snapshots/b5c939de8f754692c1647ca79fbf85e8c1e70f8a"
+  container: "/lustre/fsw/coreai_prod_infbench/common/docker/dynamo-trtllm-1.1.0.sqsh"
   precision: "fp4"
+
+dynamo:
+  install: false
+
+# HF cache snapshots use relative symlinks (e.g. model-00000.safetensors -> ../../blobs/<sha>).
+# When the snapshot dir is mounted to /model, those symlinks resolve to /blobs/<sha> inside
+# the container, so we mount the corresponding blobs dir at /blobs to keep them valid.
+extra_mount:
+  - "/lustre/fsw/coreai_prod_infbench/common/cache/hub/models--openai--gpt-oss-120b/blobs:/blobs"
 
 resources:
   gpu_type: "b200"
@@ -78,11 +87,12 @@ benchmark:
   num_prompts_mult: 10   # 256 * 10 = 2560 prompts (matches sample)
   num_warmup_mult: 2     # 256 * 2  = 512 warmups (matches sample)
 
-identity:
-  model:
-    repo: "openai/gpt-oss-120b"
-    revision: "<TODO commit-sha from cache>"
-  container:
-    image: "<TODO full image URI with @sha256:...>"
-  frameworks:
-    trtllm: "<TODO version+sha used in CI run 22202637896>"
+# Provenance metadata (not consumed by srtctl schema; kept as comments for traceability):
+# identity:
+#   model:
+#     repo: "openai/gpt-oss-120b"
+#     revision: "<TODO commit-sha from cache>"
+#   container:
+#     image: "<TODO full image URI with @sha256:...>"
+#   frameworks:
+#     trtllm: "<TODO version+sha used in CI run 22202637896>"
