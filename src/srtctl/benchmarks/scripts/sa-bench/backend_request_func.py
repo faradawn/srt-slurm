@@ -636,7 +636,6 @@ def get_tokenizer(
                 "to use mistral tokenizer mode."
             ) from e
         return MistralTokenizer.from_pretrained(str(pretrained_model_name_or_path))
-
     if custom_tokenizer:
         if custom_tokenizer == "glm_moe_dsa":
             return _load_glm_moe_dsa_tokenizer(pretrained_model_name_or_path)

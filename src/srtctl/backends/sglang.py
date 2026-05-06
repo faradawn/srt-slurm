@@ -228,6 +228,12 @@ class SGLangProtocol:
         mode = process.endpoint_mode
         config = self.get_config_for_mode(mode)
 
+        # Pop keys that are handled explicitly to avoid duplicate flags from _config_to_cli_args
+        config.pop("model-path", None)
+        config.pop("model_path", None)
+        config.pop("served-model-name", None)
+        config.pop("served_model_name", None)
+
         # Determine if multi-node
         endpoint_nodes = list(dict.fromkeys(p.node for p in endpoint_processes))
         is_multi_node = len(endpoint_nodes) > 1
@@ -243,18 +249,21 @@ class SGLangProtocol:
         # Get served model name from config
         served_model_name = self.get_served_model_name(runtime.model_path.name)
 
+        # Determine model path: HF model ID or container mount path
+        # For HF models (hf:prefix), model_path contains the HF model ID (e.g., "facebook/opt-125m")
+        # For local models, model is mounted to /model in the container
+        model_arg = str(runtime.model_path) if runtime.is_hf_model else "/model"
+
         # Start with nsys prefix if provided
         cmd: list[str] = list(nsys_prefix) if nsys_prefix else []
 
-        # Use container path /model since model is mounted there (see runtime.py)
-        # Note: runtime.model_path is the HOST path, not usable inside container
         cmd.extend(
             [
                 "python3",
                 "-m",
                 python_module,
                 "--model-path",
-                "/model",
+                model_arg,
                 "--served-model-name",
                 served_model_name,
                 "--host",
@@ -268,8 +277,12 @@ class SGLangProtocol:
         # Add disaggregation mode for prefill/decode workers (both dynamo and sglang frontend)
         if mode != "agg":
             cmd.extend(["--disaggregation-mode", mode])
-            # Bootstrap port only needed for sglang frontend (dynamo handles internally)
-            if frontend_type == "sglang" and mode == "prefill" and process.bootstrap_port is not None:
+            # Always pass bootstrap port for prefill workers regardless of frontend type.
+            # Dynamo does NOT handle this internally — SGLang's CommonKVBootstrapServer
+            # still runs on every prefill node for KV transfer coordination, and workers
+            # must register to it. Without an explicit port, the default (8998) collides
+            # with Dynamo services (etcd/NATS) on the head node, breaking multi-node prefill.
+            if mode == "prefill" and process.bootstrap_port is not None:
                 cmd.extend(["--disaggregation-bootstrap-port", str(process.bootstrap_port)])
 
         # Add multi-node coordination flags
